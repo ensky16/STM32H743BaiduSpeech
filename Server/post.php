@@ -1,6 +1,6 @@
 <html> 
 <body> 
-this is server
+
 
 </body> 
 </html> 
@@ -9,8 +9,8 @@ this is server
  
 $id=$_GET["id"];
 
-echo $id;
-echo "**********************\r\n";
+// echo $id;
+// echo "**********************\r\n";
 
 switch($id)
 {
@@ -21,14 +21,17 @@ switch($id)
             $decodeData= base64_decode(file_get_contents('php://input'));           
             fwrite($file_w, $decodeData);
             fclose($file_w);
-            echo "save receive binary to tocal finish  \r\n";
+            // echo "save receive binary to tocal finish  \r\n";
 
             //2. conver the received data to 16K     
-            echo "shell_exec start  \r\n";  
-            echo shell_exec("ffmpeg -y  -i  receive.wav  -acodec pcm_s16le -f s16le -ac 1 -ar 16000 receive16k.pcm");
-            echo "shell_exec end  \r\n";   
+            // echo "shell_exec start  \r\n";  
+            shell_exec("ffmpeg -y  -i  receive.wav  -acodec pcm_s16le -f s16le -ac 1 -ar 16000 receive16k.pcm");
+            // echo "shell_exec end  \r\n";   
 
-            include_once("asr_raw.php");
+            //include_once("asr_raw.php");
+            // echo "baidu start";
+            include_once("baidu_speech.php");
+            // echo "baidu end";
         }
         break;
 		
@@ -37,7 +40,7 @@ switch($id)
 		break;
 }
 
-?>. 
+?>
 
 <?php
      

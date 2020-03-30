@@ -48,7 +48,7 @@ u32 u32WaveCacheLen=0;
 u32 u32WaveCacheOfs=0;
 u32 u32ReadLen=0;
 extern u8 wav_play_for_16bps(u8 * au08WaveData);
-extern void sendWavDataToServer(unsigned char * audio_data, unsigned int u32SpeechDataLen);
+extern u8 * sendWavDataToServer(unsigned char * audio_data, unsigned int u32SpeechDataLen, unsigned int * u32RobotLen);
 
 //¶ÁÈ¡Â¼ÒôFIFO
 //buf:Êý¾Ý»º´æÇøÊ×µØÖ·
@@ -74,7 +74,7 @@ u8 rec_sai_fifo_read(u8 **buf)
 //      1,Ð´ÈëÊ§°Ü
 u8 rec_sai_fifo_write(u8 *buf)
 {
-	u16 i;
+	u16 i; 
 	u8 temp=sairecfifowrpos;//¼ÇÂ¼µ±Ç°Ð´Î»ÖÃ
 	sairecfifowrpos++;		//Ð´Î»ÖÃ¼Ó1
 	if(sairecfifowrpos>=SAI_RX_FIFO_SIZE)sairecfifowrpos=0;//¹éÁã  
@@ -186,25 +186,24 @@ void recoder_remindmsg_show(u8 mode)
 	}
 }
  
-
-//WAVÂ¼Òô 
 void wav_recorder(void)
 { 
-//    u32 k=0;
-	u8 res,i;
+	u8 i;
     u8 u8IsAu08WaveCacheFull=0;
+    unsigned int u32RobotLen;
 	u8 key;
 	u8 rval=0;
 	__WaveHeader *wavhead=0; 
  	u8 *pname=0;
 	u8 *pdatabuf;
+    u8 * robotReplyPtr;
 	u8 timecnt=0;					//¼ÆÊ±Æ÷   
-	u32 recsec=0;					//Â¼ÒôÊ±¼ä 
+	u32 recsec=0;					//Â¼ÒôÊ±¼ä  
 	sairecbuf1=mymalloc(SRAMIN,SAI_RX_DMA_BUF_SIZE);//SAIÂ¼ÒôÄÚ´æ1ÉêÇë
 	sairecbuf2=mymalloc(SRAMIN,SAI_RX_DMA_BUF_SIZE);//SAIÂ¼ÒôÄÚ´æ2ÉêÇë
 
     //5MB
-    u32WaveCacheLen=2000*1024;   
+    u32WaveCacheLen=5000*1024;   
     au08WaveCache=mymalloc(SRAMEX, u32WaveCacheLen);//SAIÂ¼ÒôÄÚ´æ2ÉêÇë
     memset(au08WaveCache, 0, u32WaveCacheLen);
     
@@ -238,17 +237,39 @@ void wav_recorder(void)
                         memcpy(au08WaveCache,wavhead,sizeof(__WaveHeader));
                         /*********save data to RAM cache*********************/
                         
-                        sendWavDataToServer(au08WaveCache, wavsize+40);
-                                
-						wavsize=0;
+                        robotReplyPtr=sendWavDataToServer(au08WaveCache, wavsize+40, &u32RobotLen);
+                        
+                        /***********************************/
+                        //copy the data to au08WaveCache
+                        if(u32RobotLen>u32WaveCacheLen)
+                        {
+                            printf("error!!! u32RobotLen>u32WaveCacheLen \r\n");
+                            printf("u32RobotLen is %d \r\n", u32RobotLen);
+                            printf("u32WaveCacheLen is %d \r\n", u32WaveCacheLen);                         
+                        }
+                        else
+                        {                            
+                            memset(au08WaveCache, 0, u32WaveCacheLen);
+                            memcpy(au08WaveCache, robotReplyPtr, u32RobotLen);
+                            myfree(SRAMEX, robotReplyPtr);
+                            recoder_enter_play_mode();	//½øÈë²¥·ÅÄ£Ê½
+                 
+                            wav_play_for_16bps(au08WaveCache);
+                            __HAL_DMA_DISABLE_IT(&SAI1_TXDMA_Handler,DMA_IT_TC);    //¹Ø±ÕSAI·¢ËÍDMAÖÐ¶Ï                        
+                            printf("enter record mode r\n");                        
+                            recoder_enter_rec_mode();	//ÖØÐÂ½øÈëÂ¼ÒôÄ£Ê½   
+                        }                            
+                      
+                        /********************************/
+						wavsize=0;                        
 						sairecfifordpos=0;	//FIFO¶ÁÐ´Î»ÖÃÖØÐÂ¹éÁã
 						sairecfifowrpos=0;
 					}
 					rec_sta=0;
 					recsec=0;
-				 	LED1(1);	 						//¹Ø±ÕDS1þÃû		      
+				 	LED1(1);	 						//¹Ø±ÕDS1	      
 					break;	
-             
+                
 				case KEY0_PRES:	//REC/PAUSE
 					
                     if(rec_sta&0X01)//Ô­À´ÊÇÔÝÍ£,¼ÌÐøÂ¼Òô
@@ -262,9 +283,9 @@ void wav_recorder(void)
                     else				//»¹Ã»¿ªÊ¼Â¼Òô 
 					{
 						recsec=0;	 
-                        //clear "buff if full"
+                         //clear "buff if full"
                         LCD_Fill(0, 280, 271 , 296, WHITE);	
-						Show_Str(30,280, 271, 16, "recorder start ...", 16,0);		   
+						Show_Str(30,280, 100, 16, "recorder", 16,0);		   
 				 		recoder_wav_init(wavhead);				//³õÊ¼»¯wavÊý¾Ý	
                  
                         /*********save data to RAM cache*********************/
@@ -285,15 +306,14 @@ void wav_recorder(void)
                     
 				case WKUP_PRES:	//²¥·Å×î½üÒ»¶ÎÂ¼Òô
 					if(rec_sta!=0X80)//Ã»ÓÐÔÚÂ¼Òô
-					{   	 				  
-                        LCD_Fill(30,280,260,300,WHITE); 
+					{   	  				  
                         Show_Str(30,280,lcddev.width,16,"play:",16,0);		   
-//                        LCD_Fill(30,280,lcddev.width-1,300,WHITE); 
+                        LCD_Fill(30,280,lcddev.width-1,300,WHITE); 
                         recoder_enter_play_mode();	//½øÈë²¥·ÅÄ£Ê½
                         printf("²¥·ÅÒôÆµ:%s\r\n",pname);
                         wav_play_for_16bps(au08WaveCache);
                         __HAL_DMA_DISABLE_IT(&SAI1_TXDMA_Handler,DMA_IT_TC);    //¹Ø±ÕSAI·¢ËÍDMAÖÐ¶Ï                         
-//                        LCD_Fill(30,280,lcddev.width-1,lcddev.height-1,WHITE);  //Çå³ýÏÔÊ¾,Çå³ýÖ®Ç°ÏÔÊ¾µÄÂ¼ÒôÎÄ¼þÃû	            
+                        LCD_Fill(30,280,lcddev.width-1,lcddev.height-1,WHITE);  //Çå³ýÏÔÊ¾,Çå³ýÖ®Ç°ÏÔÊ¾µÄÂ¼ÒôÎÄ¼þÃû	            
                         printf("ÖØÐÂ½øÈëÂ¼ÒôÄ£Ê½\r\n");                        
                         recoder_enter_rec_mode();	//ÖØÐÂ½øÈëÂ¼ÒôÄ£Ê½
 					}
@@ -346,24 +366,7 @@ void wav_recorder(void)
     
 	myfree(SRAMIN,wavhead);		//ÊÍ·ÅÄÚ´æ  
 	myfree(SRAMIN,pname);		//ÊÍ·ÅÄÚ´æ  
+    myfree(SRAMEX, au08WaveCache);
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
